@@ -9,6 +9,10 @@
 
 ---
 
+output_run_full.md là file output sau khi chạy trên google colab
+
+---
+
 ## Hai câu hỏi lab bắt bạn trả lời
 
 1. **Phần được tính loss có đúng là câu trả lời không?** (NB1 — chạy được trên CPU)
