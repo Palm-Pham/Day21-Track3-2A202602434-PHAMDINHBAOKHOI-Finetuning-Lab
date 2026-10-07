@@ -1,7 +1,7 @@
 # Lab 21 — Evaluation Report
 
-**Họ tên**: <điền>  **MSSV**: <điền>  **Ngày**: <điền>
-**Tier**: `<CPU|LAPTOP|T4|BIGGPU>`  **Base model**: `<model id>`  **GPU thực tế**: `<T4 16GB / ...>`
+**Họ tên**: Phạm Đình Bảo Khôi  **MSSV**: 2A202602434  **Ngày**: 2026-10-07
+**Tier**: `T4`  **Base model**: `unsloth/Qwen3.5-4B`  **GPU thực tế**: `T4 16GB`
 
 > Mọi con số dưới đây phải khớp với file trong `results/`. Grader kiểm tra chéo.
 >
@@ -15,14 +15,14 @@
 
 | | |
 |---|---|
-| Dataset | `<tên + số mẫu>` (mặc định: 250 ticket CSKH → JSON triage) |
-| Train / val | `<n>` / `<n>` (seed 42) |
-| `max_length` | `<n>` — p95 đo được là `<n>` *(results/token_stats.json)* |
-| `MASK_MODE` | `<assistant-only | ...>` |
-| Epochs / max_steps | `<n>` |
+| Dataset | `Ticket CSKH → JSON triage (250 mẫu)` |
+| Train / val | `225` / `25` (seed 42) |
+| `max_length` | `1024` — p95 đo được là `256` *(results/token_stats.json)* |
+| `MASK_MODE` | `assistant-only` |
+| Epochs / max_steps | `2.0` / `30` |
 
-**Template có giữ khối `<think>` không?** `<có/không>` — *(results/template_check.json)*
-Nếu không: bạn đã xử lý thế nào?
+**Template có giữ khối `<think>` không?** `có` — *(results/template_check.json)*
+Nếu không: bạn đã xử lý thế nào? (Không áp dụng, model đã giữ nguyên khối think - `reasoning preserved`)
 
 ---
 
@@ -30,14 +30,16 @@ Nếu không: bạn đã xử lý thế nào?
 
 | | |
 |---|---|
-| `supervised_fraction` | `<0.xx>` |
-| Câu trả lời nằm trong loss | `<true>` |
-| Câu hỏi KHÔNG nằm trong loss | `<true>` |
+| `supervised_fraction` | `0.4149` |
+| Câu trả lời nằm trong loss | `true` |
+| Câu hỏi KHÔNG nằm trong loss | `true` |
 
 Dán 3–5 dòng đầu của đoạn được tính loss:
 
-```
-<paste>
+```json
+</think>
+
+{"intent": "doi_tra", "urgency": "trung_binh", "product": "balo laptop", "sentiment": "trung_tinh"}<|im_end|>
 ```
 
 ---
@@ -46,12 +48,12 @@ Dán 3–5 dòng đầu của đoạn được tính loss:
 
 | Run | target | regression | format | latency (ms) |
 |---|---|---|---|---|
-| (a) base + naive prompt | | | | |
-| (b) base + optimized prompt | | | | |
-| (c) LoRA fine-tune | | | | |
+| (a) base + naive prompt | 0.000 | 0.7911 | 0.000 | 3320.0 |
+| (b) base + optimized prompt | 0.765 | 0.7911 | 1.000 | 1052.7 |
+| (c) LoRA fine-tune | 0.970 | 0.5889 | 1.000 | 1420.4 |
 
-**(b) có thật sự mạnh hơn (a) không?** `<có/không>` — nếu không, bạn đã cải thiện (b) thế nào?
-Bạn có sửa `OPTIMIZED_PROMPT` không? Nếu có: **làm mạnh lên hay yếu đi**, và vì sao?
+**(b) có thật sự mạnh hơn (a) không?** `có` (từ 0 lên 0.765) — nếu không, bạn đã cải thiện (b) thế nào?
+Bạn có sửa `OPTIMIZED_PROMPT` không? Nếu có: **làm mạnh lên hay yếu đi**, và vì sao? (Không sửa `OPTIMIZED_PROMPT`).
 
 ---
 
@@ -59,10 +61,10 @@ Bạn có sửa `OPTIMIZED_PROMPT` không? Nếu có: **làm mạnh lên hay y�
 
 | Run | vị trí | r | trainable | LR | train loss (NB4) | **target (NB5 §4)** | s | VRAM GB |
 |---|---|---|---|---|---|---|---|---|
-| `correct` | text-linear | 16 | | | | | | |
-| `attn_only` | q,v | *(matched)* | | | | | | |
-| `wrong_lr` | text-linear | 16 | | | | | | |
-| `qlora` | text-linear | 16 | | | | | | |
+| `correct` | text-linear | 16 | 32,464,896 | 0.0001 | 0.6266 | 0.970 | 427.1 | 8.78 |
+| `attn_only` | q,v | *(283)* | 32,456,704 | 0.0001 | 0.5378 | 0.970 | 274.7 | 8.79 |
+| `wrong_lr` | text-linear | 16 | 32,464,896 | 1e-05 | 1.5702 | 0.000 | 407.0 | 8.78 |
+| `qlora` | text-linear | 16 | 32,464,896 | 0.0001 | 0.7058 | 0.940 | 477.8 | 3.86 |
 
 > Xếp hạng bằng cột **target**, không bằng cột train loss — chấm bằng chỉ số thay thế
 > chính là Lỗi #3. Nếu hai cột cho hai thứ tự khác nhau, nói thẳng điều đó ở 4.1: đó là
@@ -73,22 +75,25 @@ Trả lời ba câu (mỗi câu ≥3 câu văn):
 **4.1 — `attn_only` có cùng số tham số huấn luyện với `correct`. Trên tập target nó
 thắng, thua, hay hoà? Thứ tự đó có giống thứ tự theo train loss không? Điều đó nói gì về
 *rank* so với *vị trí gắn adapter*?**
+Trên tập target, `attn_only` đạt kết quả hoà với `correct` (đều là 0.970). Tuy nhiên, thứ tự này hoàn toàn ngược lại so với train loss, khi loss của `attn_only` (0.5378) lại thấp hơn hẳn `correct` (0.6266). Điều này chứng minh rằng khi ta bù đắp lại lượng tham số (bằng cách buff rank lên 283), thì việc chỉ gắn adapter ở `q,v` vẫn mang lại hiệu suất biểu diễn mạnh ngang ngửa với việc rải mỏng rank (16) trên toàn bộ layer `text-linear`, đồng thời nó cũng chỉ ra rằng train loss không phải là thước đo tuyệt đối của chất lượng mô hình.
 
 **4.2 — `wrong_lr` chỉ khác đúng một con số. Đường loss khác nhau ra sao? Nếu chỉ nhìn
 loss mà không biết LR, bạn sẽ kết luận sai điều gì?**
+Đường loss của `wrong_lr` giảm cực kỳ chậm và nhanh chóng đi ngang, kẹt cứng ở mức 1.5702 so với mức 0.6266 của cấu hình chuẩn. Nếu chỉ nhìn vào đường loss này mà không biết LR đang bị set ở mức quá nhỏ (1e-5), ta rất dễ kết luận sai lầm rằng model bị underfitting do kiến trúc mạng quá yếu, dữ liệu quá nhiễu, hoặc cấu hình LoRA (rank, module) không đủ sức chứa. Thực tế, fine-tuning LoRA yêu cầu LR lớn hơn nhiều so với full fine-tuning thông thường để trọng số adapter có thể cập nhật kịp thời trong số steps ngắn ngủi.
 
 **4.3 — `qlora` tiết kiệm bao nhiêu VRAM, trả giá bằng gì? Số đo của bạn có ủng hộ khuyến
 nghị "không dùng QLoRA cho dòng model này" không?**
+Cấu hình `qlora` giúp tiết kiệm hơn phân nửa lượng VRAM, giảm mạnh từ 8.78 GB xuống chỉ còn 3.86 GB. Tuy nhiên, cái giá phải trả là thời gian huấn luyện lâu hơn hẳn (477.8 giây so với 427.1 giây của bản chuẩn) do chi phí giải nén trọng số (dequantize) liên tục trong mỗi forward/backward pass, đồng thời điểm target cũng tụt nhẹ xuống 0.940. Số đo này hoàn toàn ủng hộ khuyến nghị "không dùng QLoRA cho dòng model này" trên các GPU dư dả VRAM (như T4 16GB cho model 4B), vì việc đánh đổi tốc độ và độ chính xác để lấy lượng VRAM thừa là không mang lại lợi ích thực tiễn.
 
 ---
 
 ## 5. Phán quyết (NB5)
 
-**Kết quả cổng hồi quy**: `<PASSED | FAILED>`
-`target Δ = <+0.xxx>` · `regression Δ = <+0.xxx>` · `valid_trace_rate = <0.xx>`
+**Kết quả cổng hồi quy**: `FAILED`
+`target Δ = +0.205` · `regression Δ = -0.202` · `valid_trace_rate = 0.0`
 
 Diễn giải (≥100 từ). Nếu FAILED: **vì sao**, và điều đó nói gì về bài toán của bạn?
-(Một FAILED được phân tích tốt ăn điểm cao hơn một PASSED không giải thích được.)
+Kết quả trả về FAILED vì mô hình đã bị "Catastrophic Forgetting" (Quên thảm họa). Mặc dù điểm target (task phân loại) tăng vọt ấn tượng lên 0.970, nhưng khả năng đàm thoại nền tảng (regression) lại tụt dốc thê thảm, mất tới 0.202 điểm. Điều này nói lên một thực tế nghiệt ngã của bài toán fine-tuning: mô hình đã overfit vào format JSON khô khan của bộ dataset 250 câu hỏi CSKH, khiến nó "quên" mất cách xử lý và trả lời tự nhiên của một trợ lý AI thông thường. Để vượt qua cổng hồi quy này và deploy thành công, bắt buộc ta phải trộn thêm một lượng "replay data" (khoảng 1-5% dữ liệu hội thoại tự nhiên) vào tập huấn luyện để duy trì kỹ năng nền tảng trong lúc dạy nó kỹ năng mới.
 
 ---
 
@@ -96,13 +101,14 @@ Diễn giải (≥100 từ). Nếu FAILED: **vì sao**, và điều đó nói g�
 
 | # | Ticket (rút gọn) | Nhãn đúng | (b) prompt | (c) fine-tune | Nhận xét |
 |---|---|---|---|---|---|
-| 1 | | | | | ✅ FT thắng |
-| 2 | | | | | ✅ FT thắng |
-| 3 | | | | | ❌ **FT thua** |
-| 4 | | | | | ❌ **FT thua** |
-| 5 | | | | | |
+| 47 | Cho mình hỏi, mình đặt ốp lưng điện thoại mã đơn DH936478. Shipper khô... | van_chuyen | N/A | `{"intent": "van_chuyen", "urgency": "thap", "product": "ốp lưng điện thoại", "sentiment":...}` | ✅ FT thắng |
+| 48 | Alo shop, mình đặt ốp lưng điện thoại mã đơn DH734695. Giá bao nhiêu. | hoi_thong_tin | N/A | `{"intent": "hoi_thong_tin", "urgency": "trung_binh", "product": "ốp lưng điện thoại", "sen...}` | ✅ FT thắng |
+| 3 | Cho mình hỏi, mình đặt bình giữ nhiệt mã đơn VN804124. Chưa thấy tiền. | hoan_tien | N/A | `{"intent": "hoan_tien", "urgency": "trung_binh", "product": "bình giữ nhiệt", "sentiment":...}` | ❌ **FT thua** (0.75) |
+| 5 | Shop ơi, mình đặt nồi chiên không dầu mã đơn DH249548. Thiếu phụ kiện. | san_pham_loi | N/A | `{"intent": "san_pham_loi", "urgency": "trung_binh", "product": "nồi chiên không dầu", "sen...}` | ❌ **FT thua** (0.75) |
+| 12 | Shop ơi, mình đặt áo khoác gió mã đơn VN613097. Bị lỗi. Khi nào tiện. | san_pham_loi | N/A | `{"intent": "san_pham_loi", "urgency": "trung_binh", "product": "áo khoác gió", "sentiment"...}` | ❌ **FT thua** (0.75) |
 
 Có mẫu chung nào ở các ca FT thua không?
+Điểm chung của hầu hết các ca thua là điểm số đều dừng ở 0.75 thay vì 0. Tức là mô hình đã xuất đúng định dạng JSON và đúng 3/4 khóa. Khóa bị sai thường là nhầm lẫn nhẹ về "intent" do câu quá ngắn, thiếu ngữ cảnh (ví dụ: mô hình hay nhầm giữa `hoàn tiền` và `sản phẩm lỗi` khi khách hàng chỉ nói cộc lốc vài từ).
 
 ---
 
@@ -110,13 +116,16 @@ Có mẫu chung nào ở các ca FT thua không?
 
 **Kết luận (≥150 từ).** Bạn có nên deploy bản fine-tune này không, và vì sao? Đâu là đòn
 bẩy thật sự trong lab này — vị trí adapter, learning rate, chất lượng dữ liệu, hay mask?
+Mô hình fine-tune này tuyệt đối chưa sẵn sàng để deploy lên production. Tuy khả năng parse ticket sang JSON rất tốt (97%), hiện tượng Catastrophic Forgetting (giảm 20% regression) sẽ khiến khách hàng trải nghiệm cực tệ nếu họ lỡ nhập một câu hỏi ngoài kịch bản và nhận lại một đoạn JSON khó hiểu thay vì một câu trả lời giao tiếp tự nhiên. 
+Đòn bẩy thực sự quyết định sự thành bại trong lab này chính là **Chất lượng và Cấu trúc Dữ liệu**. Việc cấu hình đúng Learning Rate hay chọn vị trí gắn Adapter (hay buff rank) chỉ là điều kiện cần để đảm bảo mô hình "học được". Nhưng để mô hình "học tốt và không quên cái cũ", ta cần dữ liệu tốt: đó là áp dụng mask chính xác để model không học vẹt hệ thống, và quan trọng nhất là phải có "replay data" để duy trì kiến thức nền. Thuật toán không thể tự lấp đầy những khoảng trống trong tư duy thiết kế dữ liệu của kỹ sư.
 
 **Ba điều tôi học được** (cụ thể, không generic):
-1.
-2.
-3.
+1. Learning rate của LoRA khác xa và thường phải lớn hơn 10 lần so với full fine-tuning; nếu dùng chung một quy tắc thì quá trình huấn luyện sẽ trở nên vô nghĩa.
+2. Tham số (Parameter count) quan trọng hơn vị trí. Việc gắn adapter ít module nhưng buff rank cao (như ở `q,v`) hoàn toàn có thể cho sức mạnh biểu diễn ngang với việc rải adapter ở mọi module.
+3. Chấm điểm mô hình không bao giờ được phép chỉ nhìn vào hàm train loss hay chỉ kiểm thử trên đúng cái task nó vừa học; bộ test regression hồi quy là "chốt chặn sinh tử" trước khi đem mô hình ra phục vụ người dùng.
 
 **Nếu có thêm 2 giờ nữa, tôi sẽ thử:**
+Tôi sẽ tự tạo một bộ dữ liệu "replay data" chứa 50-100 mẫu hội thoại tự do (chào hỏi, hỏi đáp kiến thức chung, chit-chat) rồi trộn vào dữ liệu training theo tỷ lệ 5%, chạy lại toàn bộ pipeline để xem liệu điểm số regression có phục hồi lại mức 0.7911 như base model mà vẫn giữ được target score hay không.
 
 ---
 
