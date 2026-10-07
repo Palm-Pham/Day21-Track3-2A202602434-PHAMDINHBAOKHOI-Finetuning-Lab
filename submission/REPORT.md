@@ -131,7 +131,26 @@ Tôi sẽ tự tạo một bộ dữ liệu "replay data" chứa 50-100 mẫu h�
 
 ## Phụ lục — thưởng đã làm
 
-- [ ] B1 NB6 merge + hot-swap
+- [x] B1 NB6 merge + hot-swap
+
+### Chi tiết B1 — Merge & phục vụ nhiều adapter (`results/merge_check.json`)
+
+**1. Kết quả kiểm chứng sau Merge:**
+* **Điểm trước merge**: `0.9700`
+* **Điểm sau merge**: `0.9700`
+* **Độ lệch ($\Delta$)**: `+0.0000` (Thỏa mãn ngưỡng dung sai $\le 0.01$).
+* Trọng số adapter LoRA được cộng trực tiếp vào trọng số base model theo công thức $W = W_0 + \frac{\alpha}{r} \cdot BA$. Quá trình merge bảo toàn chính xác độ chính xác của mô hình và lưu checkpoint độc lập tại `adapters/merged`.
+
+**2. Hot-swap nhiều adapter trên cùng một base model:**
+* Đã thực nghiệm nạp đồng thời 3 adapter (`correct`, `attn_only`, `qlora`) trên cùng một thể hiện (instance) của base model `unsloth/Qwen3.5-4B` trong VRAM.
+* Chuyển đổi linh hoạt giữa các adapter bằng hàm `model.set_adapter(...)` theo từng request mà không cần phải giải phóng hay nạp lại base model.
+
+**3. Trả lời câu hỏi phân tích (Deck §23):**
+* **Merge cho overhead suy luận bằng 0, nhưng bạn mất gì?**
+  Khi thực hiện merge, ta đánh mất hoàn toàn *tính linh hoạt và khả năng phục vụ đa người thuê (multi-tenant)*. Trọng số adapter đã bị hòa tan vĩnh viễn vào base model. Nếu hệ thống phục vụ 10 tác vụ hoặc 10 nhóm khách hàng khác nhau với 10 adapter, việc merge buộc ta phải lưu trữ và nạp 10 mô hình hoàn chỉnh (mỗi model chiếm ~8–15GB VRAM và đĩa cứng), gây lãng phí tài nguyên GPU nghiêm trọng và không thể chia sẻ tài nguyên tính toán.
+* **Khi nào NÊN giữ adapter riêng dù suy luận chậm hơn một chút?**
+  Ta nên giữ adapter riêng trong các kiến trúc phục vụ đa tác vụ/đa người dùng (multi-tenant serving qua vLLM, SGLang, LoRA multiplexing). Lúc này, chỉ cần đúng **1 bản base model duy nhất** thường trực trong VRAM, còn các adapter (kích thước chỉ vài chục MB) có thể được nạp động hoặc nạp sẵn song song. Hệ thống có thể định tuyến từng request của người dùng đến adapter tương ứng trong cùng một batch suy luận, giúp tối ưu hóa chi phí hạ tầng, giảm chi phí lưu trữ và cho phép cập nhật, deploy phiên bản adapter mới tức thì mà không cần restart service model.
+
 - [ ] B2 dataset miền riêng (`data/CUSTOM_DATASET.md`)
 - [ ] B3 reasoning-trace collapse (hai `MASK_MODE`, kèm `valid_trace_rate`)
 - [ ] B4 quét rank có kiểm soát
