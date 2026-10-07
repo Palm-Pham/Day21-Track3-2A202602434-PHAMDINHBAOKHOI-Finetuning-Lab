@@ -151,7 +151,32 @@ Tôi sẽ tự tạo một bộ dữ liệu "replay data" chứa 50-100 mẫu h�
 * **Khi nào NÊN giữ adapter riêng dù suy luận chậm hơn một chút?**
   Ta nên giữ adapter riêng trong các kiến trúc phục vụ đa tác vụ/đa người dùng (multi-tenant serving qua vLLM, SGLang, LoRA multiplexing). Lúc này, chỉ cần đúng **1 bản base model duy nhất** thường trực trong VRAM, còn các adapter (kích thước chỉ vài chục MB) có thể được nạp động hoặc nạp sẵn song song. Hệ thống có thể định tuyến từng request của người dùng đến adapter tương ứng trong cùng một batch suy luận, giúp tối ưu hóa chi phí hạ tầng, giảm chi phí lưu trữ và cho phép cập nhật, deploy phiên bản adapter mới tức thì mà không cần restart service model.
 
-- [ ] B2 dataset miền riêng (`data/CUSTOM_DATASET.md`)
+- [x] B2 dataset miền riêng (`data/CUSTOM_DATASET.md`)
+
+### Chi tiết B2 — Dataset miền riêng (`data/CUSTOM_DATASET.md`)
+
+**1. Bối cảnh miền & Tác vụ:**
+* **Miền chuyên biệt**: Sàng lọc & Điều phối Bệnh nhân Khám từ xa Tiếng Việt (**Vietnamese Telemedicine Clinical Triage**).
+* **Tác vụ**: Chuẩn hóa phản ánh triệu chứng tự nhiên/khẩu ngữ của người bệnh sang JSON 4 khóa khách quan: `chuyen_khoa` (5 khoa: tim mạch, hô hấp, tiêu hóa, da liễu, thần kinh), `muc_do_khan_cap` (4 mức: cấp cứu, khẩn cấp, tiêu chuẩn, theo dõi), `nhom_doi_tuong` (4 nhóm: trẻ em, người lớn, người cao tuổi, thai phụ) và `huong_xu_ly` (4 hướng: gọi 115, đến phòng khám, hẹn khám online, tự chăm sóc).
+* **Quy mô**: **300 mẫu chất lượng cao** (đáp ứng trọn vẹn yêu cầu $\ge 200$ mẫu của đề bài), gồm **250 mẫu huấn luyện** (`data/custom_train.jsonl`) và **50 mẫu đánh giá** (`data/custom_eval.jsonl`), được sinh và kiểm định tự động bằng script `scripts/make_custom_dataset.py`.
+
+**2. Quy trình Khử nhiễm Triệt để (Decontamination Protocol — Deck §17):**
+* Để ngăn chặn hoàn toàn hiện tượng rò rỉ dữ liệu (data leakage) làm sai lệch tính liêm chính của phép đánh giá, tập dữ liệu áp dụng nguyên tắc **Phân tách kho triệu chứng độc lập (Disjoint Symptom Pools)**:
+  * Tập huấn luyện sử dụng các nhóm biểu hiện triệu chứng thông thường.
+  * Tập đánh giá (eval) sử dụng các biểu hiện triệu chứng hoàn toàn mới lạ (unseen clinical manifestations) chưa từng xuất hiện trong tập train.
+* Kiểm định tự động bằng code xác nhận: **0% trùng lặp nguyên văn (`exact_leak = 0`)** và **0% rò rỉ cụm từ triệu chứng (`symptom_leak = 0`)**. Mô hình buộc phải học được khả năng suy luận logic y khoa và mapping chuyên khoa chứ không thể "học vẹt".
+
+**3. Vì sao dữ liệu này MỚI VỀ PHÂN PHỐI so với Base Model? (Deck §3.3):**
+* Deck §3.3 chỉ rõ: Các base model 2026 (như `Qwen3.5-4B`) đã bão hòa dữ liệu web crawl phổ thông. Fine-tune trên dữ liệu hỏi đáp đại trà hầu như không mang lại cải thiện thực chất.
+* Bộ dữ liệu telemedicine này là phân phối hoàn toàn mới vì:
+  * **Khẩu ngữ bệnh nhân bản địa**: Chứa các mô tả cảm tính, tiếng lóng triệu chứng của người Việt (*"mệt xỉu lên xỉu xuống"*, *"thở rít co kéo cơ hõm ức"*, *"đau đè nặng sau xương ức vã mồ hôi hột"*, *"ợ hơi ậm ạch"*...) mà các tài liệu y khoa web chuẩn tắc không bao quát.
+  * **Hệ thống phân tuyến y tế Việt Nam**: Quy tắc điều phối phân cấp (cấp cứu 115, chuyển tuyến phòng khám, hẹn khám trực tuyến) mang tính đặc thù quốc gia mà base model không thể nội suy zero-shot.
+  * **Cấu trúc JSON phân tầng**: Base model nếu chỉ dùng prompt sẽ có xu hướng đàm thoại lan man; LoRA fine-tuning ép toàn bộ phân phối xác suất đầu ra vào đúng 4 trường nhãn theo yêu cầu.
+
+**4. Kiểm chứng Token & Mask Proof (Deck §17.2 & NB1 logic):**
+* Thống kê độ dài token trên tokenizer Qwen3.5: Mean = 115.0, $p50 = 115$, $p95 = 124$, $p99 = 126$, $\max = 127$. Đặt `max_length = 256` bao phủ 100% dữ liệu, tối ưu hóa bộ nhớ và tốc độ.
+* Tỷ lệ loss mask đạt `supervised_fraction = 41.7%` ($< 95\%$), toàn bộ câu hỏi và prompt hệ thống đều được gán `IGNORE_INDEX = -100`, chỉ có chuỗi JSON trả lời nằm trong hàm tính loss.
+
 - [ ] B3 reasoning-trace collapse (hai `MASK_MODE`, kèm `valid_trace_rate`)
 - [ ] B4 quét rank có kiểm soát
 - [ ] B5 HuggingFace Hub — link:
