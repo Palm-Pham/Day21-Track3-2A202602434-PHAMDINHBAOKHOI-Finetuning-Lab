@@ -177,6 +177,56 @@ Tôi sẽ tự tạo một bộ dữ liệu "replay data" chứa 50-100 mẫu h�
 * Thống kê độ dài token trên tokenizer Qwen3.5: Mean = 115.0, $p50 = 115$, $p95 = 124$, $p99 = 126$, $\max = 127$. Đặt `max_length = 256` bao phủ 100% dữ liệu, tối ưu hóa bộ nhớ và tốc độ.
 * Tỷ lệ loss mask đạt `supervised_fraction = 41.7%` ($< 95\%$), toàn bộ câu hỏi và prompt hệ thống đều được gán `IGNORE_INDEX = -100`, chỉ có chuỗi JSON trả lời nằm trong hàm tính loss.
 
-- [ ] B3 reasoning-trace collapse (hai `MASK_MODE`, kèm `valid_trace_rate`)
-- [ ] B4 quét rank có kiểm soát
+- [x] B3 reasoning-trace collapse (hai `MASK_MODE`, kèm `valid_trace_rate`)
+
+### Chi tiết B3 — Reasoning-trace collapse (Deck §17.5 & `results/reasoning_trace_collapse.json`)
+
+**1. Bảng số liệu thực nghiệm:**
+
+| MASK_MODE | target | **valid_trace_rate** | regression | format | final_loss |
+|---|---|---|---|---|---|
+| `assistant-only` | **0.970** | **0.000** | 0.5889 | 1.000 | 0.6266 |
+| `response-only` | **0.970** | **0.000** | 0.5889 | 1.000 | 0.6266 |
+
+*Ghi chú về Chat Template & Corpus:* Trên corpus 250 câu hỏi-đáp triage trần (bare JSON), chat template của Qwen3.5 đóng thẻ `<think>\n\n</think>` rỗng ngay bên trong `generation_prompt`. Vì câu trả lời mục tiêu không chứa khối reasoning, `response-only` và `assistant-only` có cùng loss mask. Cả hai đều dẫn tới kết quả: mô hình học được phản xạ đóng thẻ suy luận tức thì để sinh ngay chuỗi JSON.
+
+**2. Trả lời câu hỏi phân tích (Deck §17.5 & §21):**
+* **`target` có tăng trong khi `valid_trace_rate` giảm không?**
+  Có, và đây là hiện tượng sụp đổ ngầm nghiêm trọng! Điểm `target` tăng vọt từ `0.000` (naive) và `0.765` (prompt tối ưu) lên **`0.970`** (+0.205). Tuy nhiên, `valid_trace_rate` (tỷ lệ sinh ra khối suy luận hợp lệ $\ge 10$ ký tự) lại rơi thẳng về **`0.000`**. Khả năng sinh chuỗi tư duy (Chain-of-Thought) của base model đã bị xóa sổ hoàn toàn trong quá trình thích ứng với tác vụ triage.
+* **Nếu chỉ nhìn `target`, bạn có phát hiện ra vấn đề không?**
+  Hoàn toàn **KHÔNG THỂ**. Nếu chỉ nhìn vào bảng đo `target` (97%) hay `format` (100%), kỹ sư sẽ lầm tưởng mô hình đã được tối ưu hoàn hảo. Nhưng trên thực tế, mô hình đã biến thành một bộ máy phân loại cứng nhắc, mất sạch năng lực giải thích và tư duy từng bước cho các bài toán phức tạp.
+* **Vì sao deck §21 nói perplexity — và cả accuracy — một mình không phải bằng chứng?**
+  Perplexity và task accuracy chỉ đo lường mức độ khớp xác suất trên các token của tập dữ liệu mục tiêu. Chúng là các chỉ số cục bộ và thiển cận (blind to internal reasoning collapse). Chúng không phát hiện được sự suy thoái của các năng lực tiềm ẩn (latent capabilities) mà pre-training đã dày công xây dựng.
+* **Chiều tác động phụ thuộc mô hình (Model-dependent effect):**
+  Nghiên cứu gốc (Deck §17.5) chỉ ra rằng: việc đưa khối `<think>` rỗng vào dữ liệu huấn luyện phá hủy nặng nề năng lực của Qwen3/Qwen3.5, nhưng lại có tác dụng bảo vệ trên Llama-R1 do sự khác biệt về chat template và cơ chế phân rã attention. Do đó, kỹ sư không bao giờ được khái quát hóa hành vi mask giữa các họ mô hình khác nhau.
+
+- [x] B4 quét rank có kiểm soát
+
+### Chi tiết B4 — Quét rank CÓ kiểm soát (Deck §11 & `results/rank_sweep.json`)
+
+**1. Thiết kế thí nghiệm chuẩn Deck §11:**
+* Cố định cấu hình: `target_modules="text-linear"` (12 module text decoder), giữ nguyên $LR = 10^{-4}$ ($0.0001$), ngân sách 30 steps (2 epochs), batch hiệu dụng = 16.
+* Chỉ quét duy nhất tham số rank $r \in \{8, 16, 64\}$:
+
+| Run | r | Trainable params | Target | Train Loss | VRAM (GB) | Thời gian (s) |
+|---|---|---|---|---|---|---|
+| Rank 8 | 8 | 16,232,448 | 0.960 | 0.6510 | 8.70 | 395.2 |
+| Rank 16 (`correct`) | 16 | 32,464,896 | 0.970 | 0.6266 | 8.78 | 427.1 |
+| Rank 64 | 64 | 129,859,584 | 0.970 | 0.5980 | 9.25 | 465.8 |
+
+**2. Trả lời câu hỏi phân tích (Deck §11):**
+* **Rank có phải là đòn bẩy không?**
+  **KHÔNG.** Thí nghiệm chứng minh rõ ràng: Khi chuyển từ $r=16$ lên $r=64$, số tham số huấn luyện tăng gấp 4 lần (từ 32.5M lên 129.9M params), tốn thêm VRAM và thời gian huấn luyện, nhưng điểm `target` hoàn toàn đi ngang ở mức **0.970** ($\Delta = 0.000$). Ngay cả khi giảm xuống $r=8$, mô hình vẫn đạt 0.960 ($\Delta = -0.010$). Rank không phải là "nút vặn chất lượng" (quality knob).
+* **So sánh biên độ thay đổi và Xếp hạng 3 nút vặn (Knob Ranking):**
+  1. **Hạng 1 — Learning Rate (`wrong_lr` vs `correct`)**:
+     * Biên độ: $\Delta \text{target} = |0.000 - 0.970| = \mathbf{0.970}$ ($97\%$).
+     * *Mức độ*: Quyết định sống còn. Đặt sai LR theo thang full-FT ($10^{-5}$) khiến adapter kẹt loss ở 1.57, mô hình hoàn toàn không học được tác vụ.
+  2. **Hạng 2 — Vị trí đặt Adapter / Placement (`attn_only` vs `text-linear`)**:
+     * Biên độ: Đóng vai trò cấu trúc nền tảng. Khi chỉ đặt ở $q,v$ tại cùng rank 16 (chỉ ~2.3M params), mô hình thiếu sức chứa; chỉ khi buff rank lên $r=283$ để cân bằng 32.5M params thì mới đạt điểm hòa 0.970. Đặt tại `text-linear` giúp rải đều dung lượng biểu diễn lên toàn bộ text decoder.
+  3. **Hạng 3 — Rank ($r \in \{8, 16, 64\}$)**:
+     * Biên độ: $\Delta \text{target} \le \mathbf{0.010}$ ($1\%$).
+     * *Mức độ*: Nhỏ nhất trong 3 nút vặn khi đã ở trong vùng dung lượng đủ.
+* **Dữ liệu 250 mẫu có đủ thông tin để $r=64$ dùng hết không?**
+  **HOÀN TOÀN KHÔNG.** Deck §11 nhấn mạnh: Rank là *sức chứa (capacity) so với lượng thông tin trong dữ liệu*. Tập dữ liệu 250 ticket ngắn chỉ chứa một lượng entropy thông tin hữu hạn. Ở $r=16$ (32.5M params), mô hình đã có trung bình hơn 130.000 tham số cho mỗi mẫu dữ liệu — quá đủ để ghi nhớ và tổng quát hóa quy tắc phân loại 4 trường. Nâng lên $r=64$ (130M params) chỉ tạo ra dung lượng rỗng thừa thãi, làm tăng nguy cơ overfitting mà không đem lại giá trị biểu diễn thực chất.
+
 - [ ] B5 HuggingFace Hub — link:
